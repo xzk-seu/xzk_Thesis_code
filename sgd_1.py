@@ -7,7 +7,7 @@ import torch
 
 
 def parse_arguments(parser):
-    parser.add_argument('--device', type=str, default="cuda:2")
+    parser.add_argument('--device', type=str, default="cpu")
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--digit2zero', action="store_true", default=True)
     parser.add_argument('--embedding_dim', type=int, default=200)
@@ -16,7 +16,7 @@ def parse_arguments(parser):
     parser.add_argument('--momentum', type=float, default=0.0)
     parser.add_argument('--l2', type=float, default=1e-8)
     parser.add_argument('--lr_decay', type=float, default=0)
-    parser.add_argument('--batch_size', type=int, default=10,)
+    parser.add_argument('--batch_size', type=int, default=10)
     parser.add_argument('--num_epochs', type=int, default=10)
     # 模型参数
     parser.add_argument('--hidden_dim', type=int, default=400, help="LSTM隐藏层维度")
@@ -26,6 +26,10 @@ def parse_arguments(parser):
     parser.add_argument('--context_emb', type=str, default="none")
 
     parser.add_argument('--dataset', type=str, default="CONLL")
+
+    # parser.add_argument('--bert_path', type=str, default="./BERTOverflow")
+    parser.add_argument('--bert_path', type=str, default="./bert-base-cased")
+    parser.add_argument('--from_pretrain', type=bool, default=True)
 
     args = parser.parse_args()
     for k in args.__dict__:

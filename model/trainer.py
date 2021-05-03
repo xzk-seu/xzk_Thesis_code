@@ -12,7 +12,7 @@ from seqeval.metrics import recall_score
 
 
 class Trainer(object):
-    def __init__(self, model, config, dev, test):
+    def __init__(self, model, config, dev, test, use_crf=False):
         """
 
         :param model:
@@ -30,6 +30,9 @@ class Trainer(object):
             self.input_size += config.charlstm_hidden_dim
         self.dev = dev
         self.test = test
+        self.use_crf = use_crf
+        if not use_crf:
+            print("no crf !!!!!!")
 
     def train_model(self, num_epochs, train_data: List[Instance]):
         train_dataloader = MyDataLoader(train_data, self.config)
@@ -44,9 +47,8 @@ class Trainer(object):
             self.model.zero_grad()
 
             for batch, data in tqdm(enumerate(train_dataloader)):
+                data = [x.to(self.device) for x in data]
                 token_id_seq, data_length, masks, label_seq = data
-                token_id_seq, masks, label_seq = token_id_seq.to(self.device), masks.to(self.device), \
-                                                 label_seq.to(self.device)
                 self.model.train()
                 sequence_loss, logits = self.model(token_id_seq, data_length, masks, label_seq)
                 loss = sequence_loss
@@ -95,6 +97,9 @@ class Trainer(object):
                 token_id_seq, data_length, masks, label_seq = data
                 _, logits = self.model(token_id_seq, data_length, masks, label_seq)
                 pred_y = logits.argmax(dim=-1)
+                if self.use_crf:
+                    # best_scores, pred_y = self.model.crf.decode(logits, data_length, annotation_mask=None)
+                    pred_y = self.model.crf.decode(logits, masks)
                 all_pred_y.extend(pred_y)
                 all_y.extend(label_seq.cpu().numpy().tolist())
         all_pred_y_label = [[label_list[t1] for t1 in t2] for t2 in all_pred_y]

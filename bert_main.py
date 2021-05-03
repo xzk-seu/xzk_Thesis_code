@@ -2,7 +2,7 @@ import argparse
 import random
 
 from config import Reader, Config, ContextEmb
-from model.bert_linear import Bert_linear
+from model.bert_crf import Bert_CRF
 from model.trainer import Trainer
 
 
@@ -11,12 +11,13 @@ def parse_arguments(parser):
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--digit2zero', action="store_true", default=True)
     parser.add_argument('--embedding_dim', type=int, default=200)
-    parser.add_argument('--optimizer', type=str, default="sgd")
-    parser.add_argument('--learning_rate', type=float, default=0.01)
+    parser.add_argument('--optimizer', type=str, default="adam")
+    # parser.add_argument('--optimizer', type=str, default="sgd")
+    parser.add_argument('--learning_rate', type=float, default=5e-4)
     parser.add_argument('--momentum', type=float, default=0.0)
     parser.add_argument('--l2', type=float, default=1e-8)
     parser.add_argument('--lr_decay', type=float, default=0)
-    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--num_epochs', type=int, default=10)
     # 模型参数
     parser.add_argument('--hidden_dim', type=int, default=400, help="LSTM隐藏层维度")
@@ -68,9 +69,9 @@ conf.map_insts_ids(tests)
 
 random.shuffle(dataset)
 
-model = Bert_linear(conf).to(conf.device)
+model = Bert_CRF(conf).to(conf.device)
 
-trainer = Trainer(model, conf, None, tests)
+trainer = Trainer(model, conf, None, tests, use_crf=False)
 model = trainer.train_model(conf.num_epochs, dataset)
 # torch.save(model.state_dict(), 'model/softparams.pt')
 

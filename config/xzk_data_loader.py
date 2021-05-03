@@ -77,9 +77,9 @@ def collate_fn(batch_data):
     label_seq = [torch.from_numpy(np.array(xi[1])) for xi in batch_data]
     padded_sent_seq = pad_sequence(sent_seq, batch_first=True, padding_value=sent_padding_value)
     padded_label_seq = pad_sequence(label_seq, batch_first=True, padding_value=label_padding_value)
-    masks = torch.zeros(padded_sent_seq.shape, dtype=torch.uint8)
+    masks = torch.zeros(padded_sent_seq.shape, dtype=torch.bool)
     for e_id, src_len in enumerate(data_length):
-        masks[e_id, :src_len] = 1
+        masks[e_id, :src_len] = True
     return padded_sent_seq, data_length, masks, padded_label_seq
 
 

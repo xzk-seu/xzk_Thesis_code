@@ -31,7 +31,7 @@ class LinearCRF(nn.Module):
 
         self.transition = nn.Parameter(self.init_transition)
 
-    @overrides
+    # @overrides
     def forward(self, lstm_scores, word_seq_lens, tags, mask):
         """
         Calculate the negative log-likelihood

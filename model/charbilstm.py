@@ -27,7 +27,7 @@ class CharBiLSTM(nn.Module):
         self.char_lstm = nn.LSTM(self.char_emb_size, self.hidden // 2,
                                  num_layers=1, batch_first=True, bidirectional=True).to(self.device)
 
-    @overrides
+    # @overrides
     def forward(self, char_seq_tensor, char_seq_len):
         batch_size = char_seq_tensor.size(0)
         sent_len = char_seq_tensor.size(1)
@@ -43,7 +43,13 @@ class CharBiLSTM(nn.Module):
         char_embeds = self.dropout(self.char_embeddings(sorted_seq_tensor))
 
         # (batch_size * sent_len) * word_length * char_emb_dim
-        pack_input = pack_padded_sequence(char_embeds, sorted_seq_len.to("cpu"), batch_first=True)
+        if self.device != "cpu":
+            sorted_seq_len = sorted_seq_len.cpu()
+            char_embeds = char_embeds.to("cpu")
+            pack_input = pack_padded_sequence(char_embeds, sorted_seq_len, batch_first=True)
+            pack_input = pack_input.to(self.device)
+        else:
+            pack_input = pack_padded_sequence(char_embeds, sorted_seq_len, batch_first=True)
 
         _, char_hidden = self.char_lstm(pack_input, None)
         ### 笔记:调用view之前最好先contiguous, x.contiguous().view() 因为view需要tensor的内存是整块的

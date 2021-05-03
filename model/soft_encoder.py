@@ -29,7 +29,8 @@ class SoftEncoder(nn.Module):
             self.input_size += config.charlstm_hidden_dim
 
         # word_embedding[len(word2idx), embedding_dim])
-        self.word_embedding = nn.Embedding.from_pretrained(torch.FloatTensor(config.word_embedding), freeze=False).to(self.device)
+        temp = torch.from_numpy(config.word_embedding)
+        self.word_embedding = nn.Embedding.from_pretrained(temp, freeze=False).to(self.device)
         # self.word_embedding = AutoModel.from_pretrained(BERT_PATH).to(self.device)
         # self.tokenizer = AutoTokenizer.from_pretrained(BERT_PATH)
 
@@ -61,7 +62,7 @@ class SoftEncoder(nn.Module):
         sorted_seq_tensor = word_rep[permIdx]
         packed_words = pack_padded_sequence(sorted_seq_tensor, sorted_seq_len.to("cpu"), True)
 
-        output, _ = self.lstm(packed_words, None)
+        output, _ = self.lstm(packed_words.float(), None)
         output, _ = pad_packed_sequence(output, batch_first=True)
         output = output[recover_idx]
         # print(output.shape)
