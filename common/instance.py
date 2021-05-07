@@ -1,7 +1,3 @@
-#
-# @author: Allan
-# edited by Dong-Ho Lee
-#
 from common.sentence import Sentence
 from typing import List
 

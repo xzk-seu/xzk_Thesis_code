@@ -9,7 +9,6 @@ import torch.nn as nn
 import numpy as np
 import time
 from transformers import AutoModel, AutoTokenizer
-# from torchcrf import CRF
 from config.xzk_data_loader import MyDataLoader
 from typing import List
 from common import Instance
@@ -65,9 +64,9 @@ class Bert4TCTrainer(object):
 
     def train_model(self, num_epochs, train_data: List[Instance]):
         # batched_data = batching_list_instances(self.config, train_data)
-        train_dataloader = MyDataLoader(train_data, self.config)
+        dataloader = MyDataLoader(train_data, self.config)
         # size = len(batched_data) // 10
-        size = len(train_dataloader.dataset)
+        size = len(dataloader.dataset)
         start = time.gmtime()
         precisions = []
         recalls = []
@@ -77,7 +76,7 @@ class Bert4TCTrainer(object):
             print("epoch: ", epoch)
             self.model.zero_grad()
 
-            for batch, data in tqdm(enumerate(train_dataloader)):
+            for batch, data in tqdm(enumerate(dataloader)):
                 # for index in tqdm(np.random.permutation(len(batched_data))):
                 #     data = [x.to(self.device) for x in data]
                 #     token_id_seq, data_length, masks, label_seq = data
@@ -97,10 +96,10 @@ class Bert4TCTrainer(object):
                     print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
             print(epoch_loss)
             self.model.eval()
-            test_dataloader = MyDataLoader(self.test, self.config)
-            train_metrics = self.xzk_eval_model(train_dataloader)
-            test_metrics = self.xzk_eval_model(test_dataloader)
-            print(train_metrics)
+            # test_batches = batching_list_instances(self.config, self.test)
+
+            test_metrics = self.xzk_eval_model()
+            # test_metrics = self.evaluate_model(test_batches, "test", self.test)
 
             precisions.append(test_metrics[0])
             recalls.append(test_metrics[1])
@@ -121,7 +120,8 @@ class Bert4TCTrainer(object):
         print("fscores:", fscores)
         return self.model
 
-    def xzk_eval_model(self, dataloader):
+    def xzk_eval_model(self):
+        dataloader = MyDataLoader(self.test, self.config)
         label_list = self.config.idx2labels
         with torch.no_grad():
             all_pred_y = list()

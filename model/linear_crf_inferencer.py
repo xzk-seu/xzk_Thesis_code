@@ -67,8 +67,8 @@ class LinearCRF(nn.Module):
     def forward_labeled(self, all_scores: torch.Tensor, word_seq_lens: torch.Tensor, tags: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
         batchSize = all_scores.shape[0]
         sentLength = all_scores.shape[1]
-
-        currentTagScores = torch.gather(all_scores, 3, tags.view(batchSize, sentLength, 1, 1).expand(batchSize, sentLength, self.label_size, 1)).view(batchSize, -1, self.label_size)
+        currentTagScores = torch.gather(all_scores, 3, tags.view(batchSize, sentLength, 1, 1)
+                                        .expand(batchSize, sentLength, self.label_size, 1)).view(batchSize, -1, self.label_size)
         if sentLength != 1:
             tagTransScoresMiddle = torch.gather(currentTagScores[:, 1:, :], 2, tags[:, : sentLength - 1].view(batchSize, sentLength - 1, 1)).view(batchSize, -1)
         tagTransScoresBegin = currentTagScores[:, 0, self.start_idx]

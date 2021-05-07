@@ -1,14 +1,20 @@
+#
+# @author: Allan
+# edited by Dong-Ho Lee
+#
+
 import numpy as np
 from tqdm import tqdm
 from typing import List, Tuple, Dict, Union
+
+from transformers import AutoTokenizer
+
 from common import Instance
 import torch
 from enum import Enum
 import os
 import sys
 from termcolor import colored
-from transformers import AutoTokenizer
-
 
 START = "<START>"
 STOP = "<STOP>"
@@ -25,7 +31,17 @@ class ContextEmb(Enum):
 
 class Config:
     def __init__(self, args) -> None:
+        """
+        Construct the arguments and some hyperparameters
+        :param args:
+        """
 
+        # Predefined label string.
+
+        # START = "<START>"
+        # STOP = "<STOP>"
+        # PAD = "<PAD>"
+        # UNK = "<UNK>"
         self.PAD = PAD
         self.START_TAG = START
         self.STOP_TAG = STOP
@@ -40,8 +56,10 @@ class Config:
         # Model hyper parameters
         self.embedding_dim = args.embedding_dim
         self.context_emb = ContextEmb[args.context_emb]
-        self.context_emb_size = 0
+        self.context_emb_size = args.bert_embedding_size
+        self.bert_embedding_size = args.bert_embedding_size
         self.embedding = None
+        self.rnn = args.rnn
         self.word_embedding = None
         self.seed = args.seed
         self.digit2zero = args.digit2zero
@@ -54,25 +72,25 @@ class Config:
         self.charlstm_hidden_dim = 50
         self.use_char_rnn = args.use_char_rnn
         self.use_crf_layer = args.use_crf_layer
-
-        # self.dataset = "CONLL"
-        self.dataset = args.dataset
         self.bert_path = args.bert_path
-        self.from_pretrain = args.from_pretrain
-        if self.from_pretrain:
-            self.tokenizer = AutoTokenizer.from_pretrained(self.bert_path)
 
+        # Data specification
+        self.dataset = args.dataset
         self.train_file = "dataset/" + self.dataset + "/train_20.txt"
         self.train_all_file = "dataset/" + self.dataset + "/train.txt"
-        self.dev_file = "dataset/" + self.dataset + "/dev.txt"
+        if self.dataset == "Laptop-reviews":
+            self.dev_file = "dataset/" + self.dataset + "/test.txt"
+        else:
+            self.dev_file = "dataset/" + self.dataset + "/dev.txt"
         self.test_file = "dataset/" + self.dataset + "/test.txt"
+        self.trigger_file = "dataset/" + self.dataset + "/trigger_20.txt"
         self.label2idx = {}
         self.idx2labels = []
         self.char2idx = {}
         self.idx2char = []
         self.num_char = 0
-
-        # 训练参数
+        self.tokenizer = AutoTokenizer.from_pretrained(self.bert_path)
+        # Training hyperparameter
         self.optimizer = args.optimizer.lower()
         self.learning_rate = args.learning_rate
         self.momentum = args.momentum
@@ -83,6 +101,42 @@ class Config:
         self.clip = 5
         self.lr_decay = args.lr_decay
         self.device = torch.device(args.device)
+
+
+    def read_pretrain_embedding(self) -> Tuple[Union[Dict[str, np.array], None], int]:
+        """
+        Read the pretrained word embeddings, return the complete embeddings and the embedding dimension
+        :return:
+        """
+        print("reading the pretraing embedding: %s" % (self.embedding_file))
+        if self.embedding_file is None:
+            print("pretrain embedding in None, using random embedding")
+            return None, self.embedding_dim
+        else:
+            exists = os.path.isfile(self.embedding_file)
+            if not exists:
+                print(colored("[Warning] pretrain embedding file not exists, using random embedding",  'red'))
+                return None, self.embedding_dim
+                # raise FileNotFoundError("The embedding file does not exists")
+        embedding_dim = -1
+        embedding = dict()
+        with open(self.embedding_file, 'r', encoding='utf-8') as file:
+            for line in tqdm(file.readlines()):
+                line = line.strip()
+                if len(line) == 0:
+                    continue
+                tokens = line.split()
+                if embedding_dim < 0:
+                    embedding_dim = len(tokens) - 1
+                else:
+                    # print(tokens)
+                    # print(embedding_dim)
+                    assert (embedding_dim + 1 == len(tokens))
+                embedd = np.empty([1, embedding_dim])
+                embedd[:] = tokens[1:]
+                first_col = tokens[0]
+                embedding[first_col] = embedd
+        return embedding, embedding_dim
 
     def build_word_idx(self, train_insts: List[Instance], dev_insts: List[Instance] = None, test_insts: List[Instance] = None) -> None:
         """
@@ -136,28 +190,48 @@ class Config:
                     self.idx2word.append(word)
 
     def build_emb_table(self) -> None:
-        print("Building the embedding table for vocabulary...")
-        scale = np.sqrt(3.0 / self.embedding_dim)
-        # word_embedding -> len(self.word2idx)*self.embedding_dim
-        self.word_embedding = np.empty([len(self.word2idx), self.embedding_dim])
-        for word in self.word2idx:
-            # 用分布[-scale,scale)区间的随机数填充每一个word对应idx所属的1*100空间
-            self.word_embedding[self.word2idx[word], :] = np.random.uniform(-scale, scale, [1, self.embedding_dim])
-
-    def build_label_idx(self, insts: List[Instance]):
         """
-
-        :param insts:
+        build the embedding table with pretrained word embeddings (if given otherwise, use random embeddings)
         :return:
         """
+        print("Building the embedding table for vocabulary...")
+        scale = np.sqrt(3.0 / self.embedding_dim)
+        if self.embedding is not None:
+            print("[Info] Use the pretrained word embedding to initialize: %d x %d" % (len(self.word2idx), self.embedding_dim))
+            self.word_embedding = np.empty([len(self.word2idx), self.embedding_dim])
+            for word in self.word2idx:
+                if word in self.embedding:
+                    self.word_embedding[self.word2idx[word], :] = self.embedding[word]
+                elif word.lower() in self.embedding:
+                    self.word_embedding[self.word2idx[word], :] = self.embedding[word.lower()]
+                else:
+                    # self.word_embedding[self.word2idx[word], :] = self.embedding[self.UNK]
+                    self.word_embedding[self.word2idx[word], :] = np.random.uniform(-scale, scale, [1, self.embedding_dim])
+        else:
+            # word_embedding -> len(self.word2idx)*self.embedding_dim
+            self.word_embedding = np.empty([82000, self.embedding_dim])
+            for word in self.word2idx:
+                # 用分布[-scale,scale)区间的随机数填充每一个word对应idx所属的1*100空间
+                self.word_embedding[self.word2idx[word], :] = np.random.uniform(-scale, scale, [1, self.embedding_dim])
+
+    def build_label_idx(self, insts: List[Instance]) -> None:
+        """
+        Build the mapping from label to index and index to labels.
+        :param insts: list of instances.
+        :return:
+        """
+        #  self.triggerlabel = {}
 
         self.label2idx[self.PAD] = len(self.label2idx)
         self.idx2labels.append(self.PAD)
+
         for inst in insts:
             for label in inst.output:
                 if label not in self.label2idx:
                     self.idx2labels.append(label)
                     self.label2idx[label] = len(self.label2idx)
+                #   if label not in [START,STOP,PAD,UNK,'O','T'] and label.split('-')[1] not in self.triggerlabel:
+                #   self.triggerlabel[label.split('-')[1]] = len(self.triggerlabel)
 
         self.label2idx[self.START_TAG] = len(self.label2idx)
         self.idx2labels.append(self.START_TAG)
@@ -165,18 +239,18 @@ class Config:
         self.idx2labels.append(self.STOP_TAG)
         # 获取label数目
         self.label_size = len(self.label2idx)
+        # self.trig_label_size = len(self.triggerlabel)
         self.start_label_id = self.label2idx[self.START_TAG]
         self.stop_label_id = self.label2idx[self.STOP_TAG]
         print("#labels: {}".format(self.label_size))
         print("label 2idx: {}".format(self.label2idx))
 
-    def use_iobes(self, insts: List[Instance]):
+    def use_iobes(self, insts: List[Instance]) -> None:
         """
-        将BIO模式改为BIOES模式
+        Use IOBES tagging schema to replace the IOB tagging schema in the instance
         :param insts:
         :return:
         """
-        print("#############use_iobes#############")
         for inst in insts:
             output = inst.output
             for pos in range(len(inst)):
@@ -195,44 +269,37 @@ class Config:
                         if next_entity.startswith(self.O) or next_entity.startswith(self.B):
                             output[pos] = curr_entity.replace(self.I, self.E)
 
-    def c2idx(self, word, inst):
-        char_id = []
-        for c in word:
-            if c in self.char2idx:
-                char_id.append(self.char2idx[c])
-            else:
-                char_id.append(self.char2idx[self.UNK])
-        inst.char_ids.append(char_id)
-
     def map_insts_ids(self, insts: List[Instance]):
         """
-        得到Instance的char_ids,word_ids,output_ids
-        :param from_pretrain:
+        Create id for word, char and label in each instance.
         :param insts:
         :return:
         """
-        print("#############map_insts_ids#############")
         for inst in insts:
             words = inst.input.words
             inst.word_ids = []
             inst.char_ids = []
             inst.output_ids = [] if inst.output else None
-            if self.from_pretrain:
+            if self.bert_path:
                 inst.word_ids = self.tokenizer.convert_tokens_to_ids(words)
             for word in words:
-                self.c2idx(word, inst)
-                if self.from_pretrain:
-                    continue
-                if word in self.word2idx:
-                    inst.word_ids.append(self.word2idx[word])
-                else:
-                    print("#if word not in self.word2idx:")
-                    inst.word_ids.append(self.word2idx[self.UNK])
-
+                if not self.bert_path:
+                    if word in self.word2idx:
+                        inst.word_ids.append(self.word2idx[word])
+                    else:
+                        # print("#if word not in self.word2idx:")
+                        inst.word_ids.append(self.word2idx[self.UNK])
+                char_id = []
+                for c in word:
+                    if c in self.char2idx:
+                        char_id.append(self.char2idx[c])
+                    else:
+                        char_id.append(self.char2idx[self.UNK])
+                inst.char_ids.append(char_id)
             if inst.output:
                 for label in inst.output:
                     if label in self.label2idx:
                         inst.output_ids.append(self.label2idx[label])
                     else:
-                        print("#if label not in self.label2idx:")
+                        # print("#if label not in self.label2idx:")
                         inst.output_ids.append(self.label2idx['O'])

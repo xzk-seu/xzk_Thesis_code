@@ -1,8 +1,3 @@
-#
-# @author: Allan
-# edited by Dong-Ho Lee
-#
-
 from typing import List
 
 

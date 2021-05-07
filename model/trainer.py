@@ -1,6 +1,9 @@
 from config.utils import get_optimizer
 from tqdm import tqdm
+import math
 import torch
+import matplotlib.pyplot as plt
+import numpy as np
 import time
 from config.xzk_data_loader import MyDataLoader
 from typing import List
@@ -9,6 +12,9 @@ from seqeval.metrics import accuracy_score
 from seqeval.metrics import f1_score
 from seqeval.metrics import precision_score
 from seqeval.metrics import recall_score
+from seqeval.metrics import classification_report
+from config import ContextEmb, batching_list_instances
+from config.eval import evaluate_batch_insts
 
 
 class Trainer(object):
@@ -37,20 +43,21 @@ class Trainer(object):
     def train_model(self, num_epochs, train_data: List[Instance]):
         train_dataloader = MyDataLoader(train_data, self.config)
         size = len(train_dataloader.dataset)
+
         start = time.gmtime()
         precisions = []
         recalls = []
         fscores = []
         for epoch in range(num_epochs):
             epoch_loss = 0
-            print("epoch: ", epoch)
             self.model.zero_grad()
-
+            self.model.train()
+            print(f"------------------epoch: {(epoch + 1)}------------------")
             for batch, data in tqdm(enumerate(train_dataloader)):
-                data = [x.to(self.device) for x in data]
-                token_id_seq, data_length, masks, label_seq = data
-                self.model.train()
-                sequence_loss, logits = self.model(token_id_seq, data_length, masks, label_seq)
+                data = [x.to(self.device) for x in data[0:-1]]
+                token_id_seq, data_length, char_seq_tensor, char_seq_len, masks, label_seq = data
+                sequence_loss, logits = self.model(token_id_seq, data_length,
+                                                   char_seq_tensor, char_seq_len, masks, label_seq)
                 loss = sequence_loss
                 epoch_loss = epoch_loss + loss.data
                 loss.backward(retain_graph=True)
@@ -60,12 +67,14 @@ class Trainer(object):
                 if batch % 100 == 0:
                     loss, current = loss.item(), batch * len(token_id_seq)
                     print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+
             print(epoch_loss)
             self.model.eval()
+
             test_dataloader = MyDataLoader(self.test, self.config)
-            train_metrics = self.xzk_eval_model(train_dataloader)
-            test_metrics = self.xzk_eval_model(test_dataloader)
-            print(train_metrics)
+
+            test_metrics = self.xzk_eval_model(test_dataloader, "test")
+            print('test_metrics:', test_metrics)
 
             precisions.append(test_metrics[0])
             recalls.append(test_metrics[1])
@@ -86,28 +95,38 @@ class Trainer(object):
         print("fscores:", fscores)
         return self.model
 
-    def xzk_eval_model(self, dataloader):
-        label_list = self.config.idx2labels
+    def xzk_eval_model(self, dataloader, name=None):
         with torch.no_grad():
-            all_pred_y = list()
-            all_y = list()
+            metrics = np.asarray([0, 0, 0], dtype=int)
+            all_true_y_label = list()
+            all_pred_y_label = list()
             print("testing")
             for batch, data in tqdm(enumerate(dataloader)):
-                data = [x.to(self.device) for x in data]
-                token_id_seq, data_length, masks, label_seq = data
-                _, logits = self.model(token_id_seq, data_length, masks, label_seq)
-                pred_y = logits.argmax(dim=-1)
-                if self.use_crf:
-                    # best_scores, pred_y = self.model.crf.decode(logits, data_length, annotation_mask=None)
-                    pred_y = self.model.crf.decode(logits, masks)
-                all_pred_y.extend(pred_y)
-                all_y.extend(label_seq.cpu().numpy().tolist())
-        all_pred_y_label = [[label_list[t1] for t1 in t2] for t2 in all_pred_y]
-        all_y_label = [[label_list[t1] for t1 in t2] for t2 in all_y]
-        p = precision_score(all_pred_y_label, all_y_label)
-        r = recall_score(all_pred_y_label, all_y_label)
-        f1 = f1_score(all_pred_y_label, all_y_label)
-        print("Precision: %.2f, Recall: %.2f, F1: %.2f" % (p, r, f1), flush=True)
-        print('acc', accuracy_score(all_pred_y_label, all_y_label), flush=True)
-        return p, r, f1
+                insts = data[-1]
+                data = [x.to(self.device) for x in data[0:-1]]
+                token_id_seq, data_length, char_seq_tensor, char_seq_len, masks, label_seq = data
+                sequence_loss, logits = self.model(token_id_seq, data_length,
+                                                   char_seq_tensor, char_seq_len, masks, label_seq)
+                batch_max_scores, pred_ids = self.model.decode(logits, data_length)
+                metrics += evaluate_batch_insts(insts, pred_ids, label_seq, data_length,
+                                                self.config.idx2labels,
+                                                self.config.use_crf_layer)
+
+                for i in insts:
+                    all_pred_y_label.append(i.prediction)
+                    all_true_y_label.append(i.output)
+
+            p, total_predict, total_entity = metrics[0], metrics[1], metrics[2]
+            precision = p * 1.0 / total_predict * 100 if total_predict != 0 else 0
+            recall = p * 1.0 / total_entity * 100 if total_entity != 0 else 0
+            fscore = 2.0 * precision * recall / (precision + recall) if precision != 0 or recall != 0 else 0
+            print("[%s set] Precision: %.2f, Recall: %.2f, F1: %.2f" % (name, precision, recall, fscore), flush=True)
+
+            p = precision_score(all_true_y_label, all_pred_y_label)
+            r = recall_score(all_true_y_label, all_pred_y_label)
+            f1 = f1_score(all_true_y_label, all_pred_y_label)
+            print("Precision: %.2f, Recall: %.2f, F1: %.2f" % (p, r, f1), flush=True)
+            print('acc', accuracy_score(all_true_y_label, all_pred_y_label), flush=True)
+            print(classification_report(all_true_y_label, all_pred_y_label))
+        return precision, recall, fscore
 

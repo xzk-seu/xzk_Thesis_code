@@ -47,15 +47,6 @@ class Reader:
         return insts
 
     def read_txt(self, file: str, number: int = -1) -> List[Instance]:
-        """
-        将一个文件中的数据读出来，
-        构建Instance列表
-        Instance里面input为输入特征，其中words为token序列
-        Instance里面output为标签序列
-        :param file:
-        :param number:
-        :return:
-        """
         insts = []
         with open(file, 'r', encoding='utf-8') as f:
             words = []
